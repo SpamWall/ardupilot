@@ -468,6 +468,7 @@ def run_in_terminal_window(autotest, name, cmd):
     if under_macos() and os.environ.get('DISPLAY'):
         # on MacOS record the window IDs so we can close them later
         out = subprocess.Popen(runme, stdout=subprocess.PIPE).communicate()[0]
+        out = out.decode('utf-8')
         import re
         p = re.compile('tab 1 of window id (.*)')
                         
@@ -492,17 +493,18 @@ def run_in_terminal_window(autotest, name, cmd):
 tracker_uarta = None  # blemish
 
 
-def start_antenna_tracker(autotest, opts):
+def start_antenna_tracker(autotest, cmd_opts):
     """Compile and run the AntennaTracker, add tracker to mavproxy"""
+
     global tracker_uarta
     progress("Preparing antenna tracker")
     tracker_home = find_location_by_name(find_autotest_dir(),
-                                         opts.tracker_location)
+                                         cmd_opts.tracker_location)
     vehicledir = os.path.join(autotest, "../../" + "AntennaTracker")
     opts = vinfo.options["AntennaTracker"]
     tracker_default_frame = opts["default_frame"]
     tracker_frame_options = opts["frames"][tracker_default_frame]
-    do_build(vehicledir, opts, tracker_frame_options)
+    do_build(vehicledir, cmd_opts, tracker_frame_options)
     tracker_instance = 1
     oldpwd = os.getcwd()
     os.chdir(vehicledir)
@@ -561,6 +563,7 @@ def start_vehicle(binary, autotest, opts, stuff, loc):
         cmd.extend(opts.sitl_instance_args.split(" "))
     if opts.mavlink_gimbal:
         cmd.append("--gimbal")
+    path = None
     if "default_params_filename" in stuff:
         paths = stuff["default_params_filename"]
         if not isinstance(paths, list):
@@ -568,6 +571,13 @@ def start_vehicle(binary, autotest, opts, stuff, loc):
         paths = [os.path.join(autotest, x) for x in paths]
         path = ",".join(paths)
         progress("Using defaults from (%s)" % (path,))
+    if opts.add_param_file:
+        if not os.path.isfile(opts.add_param_file):
+            print("The parameter file (%s) does not exist" % (opts.add_param_file,))
+            sys.exit(1)
+        path += "," + str(opts.add_param_file)
+        progress("Adding parameters from (%s)" % (str(opts.add_param_file),))
+    if path is not None:
         cmd.extend(["--defaults", path])
 
     run_in_terminal_window(autotest, cmd_name, cmd)
@@ -824,6 +834,10 @@ group_sim.add_option("", "--fresh-params",
                      dest='fresh_params',
                      default=False,
                      help="Generate and use local parameter help XML")
+group_sim.add_option("", "--add-param-file",
+                     type='string',
+                     default=None,
+                     help="Add a parameters file to use")
 parser.add_option_group(group_sim)
 
 

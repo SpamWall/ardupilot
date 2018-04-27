@@ -8,6 +8,7 @@
 #include <AP_Math/AP_Math.h>
 #include <AP_Param/AP_Param.h>
 #include <GCS_MAVLink/GCS_MAVLink.h>
+#include <AP_BattMonitor/AP_BattMonitor.h>
 
 #include "CompassCalibrator.h"
 #include "AP_Compass_Backend.h"
@@ -20,6 +21,7 @@
 #define AP_COMPASS_MOT_COMP_PER_MOTOR   0x03
 
 // setup default mag orientation for some board types
+#ifndef MAG_BOARD_ORIENTATION
 #if CONFIG_HAL_BOARD == HAL_BOARD_LINUX && CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_BEBOP
 # define MAG_BOARD_ORIENTATION ROTATION_YAW_90
 #elif CONFIG_HAL_BOARD == HAL_BOARD_LINUX && (CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_LINUX_ERLEBRAIN2 || \
@@ -28,6 +30,8 @@
 #else
 # define MAG_BOARD_ORIENTATION ROTATION_NONE
 #endif
+#endif
+
 
 // define default compass calibration fitness and consistency checks
 #define AP_COMPASS_CALIBRATION_FITNESS_DEFAULT 16.0f
@@ -201,8 +205,9 @@ public:
     float get_declination() const;
 
     // set overall board orientation
-    void set_board_orientation(enum Rotation orientation) {
+    void set_board_orientation(enum Rotation orientation, Matrix3f* custom_rotation = nullptr) {
         _board_orientation = orientation;
+        _custom_rotation = custom_rotation;
     }
 
     /// Set the motor compensation type
@@ -244,15 +249,7 @@ public:
     /// @param thr_pct              throttle expressed as a percentage from 0 to 1.0
     void set_throttle(float thr_pct) {
         if (_motor_comp_type == AP_COMPASS_MOT_COMP_THROTTLE) {
-            _thr_or_curr = thr_pct;
-        }
-    }
-
-    /// Set the current used by system in amps
-    /// @param amps                 current flowing to the motors expressed in amps
-    void set_current(float amps) {
-        if (_motor_comp_type == AP_COMPASS_MOT_COMP_CURRENT) {
-            _thr_or_curr = amps;
+            _thr = thr_pct;
         }
     }
 
@@ -326,6 +323,8 @@ public:
         return (uint16_t)_offset_max.get();
     }
 
+    uint8_t get_filter_range() const { return uint8_t(_filter_range.get()); }
+
 private:
     /// Register a new compas driver, allocating an instance number
     ///
@@ -392,6 +391,7 @@ private:
 
     // board orientation from AHRS
     enum Rotation _board_orientation;
+    Matrix3f* _custom_rotation;
 
     // primary instance
     AP_Int8     _primary;
@@ -412,8 +412,8 @@ private:
     // 0 = disabled, 1 = enabled for throttle, 2 = enabled for current
     AP_Int8     _motor_comp_type;
 
-    // throttle expressed as a percentage from 0 ~ 1.0 or current expressed in amps
-    float       _thr_or_curr;
+    // throttle expressed as a percentage from 0 ~ 1.0, used for motor compensation
+    float       _thr;
 
     struct mag_state {
         AP_Int8     external;
@@ -464,4 +464,6 @@ private:
 
     // mask of driver types to not load. Bit positions match DEVTYPE_ in backend
     AP_Int32 _driver_type_mask;
+    
+    AP_Int8 _filter_range;
 };

@@ -332,7 +332,13 @@
  # define RESET_SWITCH_CHAN_PWM 1750
 #endif
 
-#define HIL_SUPPORT ENABLED
+#ifndef HIL_SUPPORT
+#if HAL_MINIMIZE_FEATURES
+# define HIL_SUPPORT DISABLED
+#else
+# define HIL_SUPPORT ENABLED
+#endif
+#endif
 
 //////////////////////////////////////////////////////////////////////////////
 // Parachute release
@@ -354,4 +360,16 @@
 # define HAVE_PX4_MIXER 1
 #else
 # define HAVE_PX4_MIXER 0
+#endif
+
+#ifndef STATS_ENABLED
+ # define STATS_ENABLED ENABLED
+#endif
+
+#ifndef DEVO_TELEM_ENABLED
+#if HAL_MINIMIZE_FEATURES
+ #define DEVO_TELEM_ENABLED DISABLED
+#else
+ #define DEVO_TELEM_ENABLED ENABLED
+#endif
 #endif

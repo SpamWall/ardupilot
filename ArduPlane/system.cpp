@@ -33,8 +33,10 @@ void Plane::init_ardupilot()
     //
     load_parameters();
 
+#if STATS_ENABLED == ENABLED
     // initialise stats module
     g2.stats.init();
+#endif
 
 #if HIL_SUPPORT
     if (g.hil_mode == 1) {
@@ -115,8 +117,10 @@ void Plane::init_ardupilot()
 #if FRSKY_TELEM_ENABLED == ENABLED
     // setup frsky, and pass a number of parameters to the library
     frsky_telemetry.init(serial_manager, fwver.fw_string,
-                         MAV_TYPE_FIXED_WING,
-                         &g.fs_batt_voltage, &g.fs_batt_mah);
+                         MAV_TYPE_FIXED_WING);
+#endif
+#if DEVO_TELEM_ENABLED == ENABLED
+    devo_telemetry.init(serial_manager);
 #endif
 
 #if LOGGING_ENABLED == ENABLED
@@ -300,6 +304,10 @@ void Plane::set_mode(enum FlightMode mode, mode_reason_t reason)
 #if FRSKY_TELEM_ENABLED == ENABLED
     frsky_telemetry.update_control_mode(control_mode);
 #endif
+#if DEVO_TELEM_ENABLED == ENABLED
+    devo_telemetry.update_control_mode(control_mode);
+#endif
+
 #if CAMERA == ENABLED
     camera.set_is_auto_mode(control_mode == AUTO);
 #endif
@@ -586,12 +594,13 @@ void Plane::startup_INS_ground(void)
 
     // read Baro pressure at ground
     //-----------------------------
-    init_barometer(true);
+    barometer.set_log_baro_bit(MASK_LOG_IMU);
+    barometer.calibrate();
 
     if (airspeed.enabled()) {
         // initialize airspeed sensor
         // --------------------------
-        zero_airspeed(true);
+        airspeed.calibrate(true);
     } else {
         gcs().send_text(MAV_SEVERITY_WARNING,"No airspeed");
     }

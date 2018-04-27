@@ -187,8 +187,9 @@ public:
     static const struct AP_Param::GroupInfo var_info[];
 
     // set overall board orientation
-    void set_board_orientation(enum Rotation orientation) {
+    void set_board_orientation(enum Rotation orientation, Matrix3f* custom_rotation = nullptr) {
         _board_orientation = orientation;
+        _custom_rotation = custom_rotation;
     }
 
     // return the selected sample rate
@@ -197,7 +198,6 @@ public:
     // return the main loop delta_t in seconds
     float get_loop_delta_t(void) const { return _loop_delta_t; }
 
-    uint16_t error_count(void) const { return 0; }
     bool healthy(void) const { return get_gyro_health() && get_accel_health(); }
 
     uint8_t get_primary_accel(void) const { return _primary_accel; }
@@ -268,7 +268,7 @@ public:
     void acal_update();
 
     // simple accel calibration
-    MAV_RESULT simple_accel_cal(AP_AHRS &ahrs);
+    MAV_RESULT simple_accel_cal();
 
     bool accel_cal_requires_reboot() const { return _accel_cal_requires_reboot; }
 
@@ -324,8 +324,8 @@ public:
         uint32_t last_sent_ms;
 
         // all samples are multiplied by this
-        static const uint16_t multiplier_accel = INT16_MAX/radians(2000);
-        static const uint16_t multiplier_gyro = INT16_MAX/(16*GRAVITY_MSS);
+        static const uint16_t multiplier_accel = INT16_MAX/(16*GRAVITY_MSS);
+        static const uint16_t multiplier_gyro = INT16_MAX/radians(2000);
         uint16_t multiplier = multiplier_accel;
 
         // push blocks to DataFlash at regular intervals.  each
@@ -465,6 +465,7 @@ private:
     
     // board orientation from AHRS
     enum Rotation _board_orientation;
+    Matrix3f* _custom_rotation;
 
     // per-sensor orientation to allow for board type defaults at runtime
     enum Rotation _gyro_orientation[INS_MAX_INSTANCES];

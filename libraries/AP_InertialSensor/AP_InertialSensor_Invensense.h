@@ -63,6 +63,7 @@ public:
         Invensense_ICM20608,
         Invensense_ICM20602,
         Invensense_ICM20789,
+        Invensense_ICM20689,
     };
     
 private:
@@ -105,13 +106,14 @@ private:
     uint8_t _gyro_instance;
     uint8_t _accel_instance;
 
-    uint16_t _error_count;
-
     float temp_sensitivity = 1.0/340; // degC/LSB
     float temp_zero = 36.53; // degC
     
     float _temp_filtered;
     float _accel_scale;
+
+    float _fifo_accel_scale;
+    float _fifo_gyro_scale;
     LowPassFilter2pFloat _temp_filter;
 
     enum Rotation _rotation;

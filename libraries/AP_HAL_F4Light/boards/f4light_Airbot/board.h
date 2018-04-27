@@ -95,32 +95,37 @@
 
 #define BOARD_NR_GPIO_PINS      109
 
+#define I2C1_SDA PB9
+#define I2C1_SCL PB8
+
+#define I2C2_SDA PB11
+#define I2C2_SCL PB10
+
 // use soft I2C driver instead hardware
 //#define BOARD_SOFT_I2C2
-#define BOARD_I2C_BUS_INT   1  // hardware internal I2C
-//#define BOARD_I2C_BUS_EXT 1  // external I2C
+//#define BOARD_I2C_BUS_INT   1  // hardware internal I2C
+#define BOARD_I2C_BUS_EXT   1  // external I2C
 #define BOARD_I2C_BUS_SLOW  1 // slow down bus with this number
 
-#define HAL_BARO_MS5611_I2C_BUS         BOARD_I2C_BUS_INT
+#define HAL_BARO_MS5611_I2C_BUS         BOARD_I2C_BUS_EXT
 #define HAL_BARO_MS5611_I2C_ADDR        (0x77)
 
-#define HAL_BARO_BMP280_BUS             BOARD_I2C_BUS_INT
+#define HAL_BARO_BMP280_BUS             BOARD_I2C_BUS_EXT
 #define HAL_BARO_BMP280_I2C_ADDR        (0x76)
 
-#define HAL_BARO_BMP085_BUS             BOARD_I2C_BUS_INT
+#define HAL_BARO_BMP085_BUS             BOARD_I2C_BUS_EXT
 #define HAL_BARO_BMP085_I2C_ADDR        (0x77)
 
-#define HAL_BARO_MS5607_I2C_BUS         BOARD_I2C_BUS_INT
+#define HAL_BARO_MS5607_I2C_BUS         BOARD_I2C_BUS_EXT
 #define HAL_BARO_MS5607_I2C_ADDR        (0x77)
 
 
 #define BOARD_COMPASS_DEFAULT HAL_COMPASS_HMC5843
 //#define BOARD_HMC5883_DRDY_PIN  38  // PB7 - but it not used by driver
 
-#define HAL_COMPASS_HMC5843_I2C_BUS     BOARD_I2C_BUS_INT
+#define HAL_COMPASS_HMC5843_I2C_BUS     BOARD_I2C_BUS_EXT
 #define HAL_COMPASS_HMC5843_I2C_ADDR    (0x1E)
 #define HAL_COMPASS_HMC5843_ROTATION    ROTATION_NONE
-
 
 #define BOARD_INS_DEFAULT HAL_INS_MPU60XX_SPI
 #define BOARD_INS_ROTATION  ROTATION_YAW_180
@@ -130,19 +135,16 @@
 
 
 #define BOARD_DATAFLASH_NAME "dataflash"
-#define BOARD_DATAFLASH_PAGES 0x2000
+#define BOARD_DATAFLASH_PAGES 0x10000
 #define BOARD_DATAFLASH_ERASE_SIZE (4096)// in bytes
 
-#if 1// if board's dataflash supports 4k erases then we can use it as FAT and share it via USB
+// if board's dataflash supports 4k erases then we can use it as FAT and share it via USB
 #define BOARD_DATAFLASH_FATFS
 #define BOARD_HAS_SDIO
 #define USB_MASSSTORAGE
 #define HAL_BOARD_LOG_DIRECTORY "0:"
 #define HAL_BOARD_TERRAIN_DIRECTORY "0:/TERRAIN"
 //#define HAL_PARAM_DEFAULTS_PATH "0:/defaults.parm"
-#else
-// old dataflash logs
-#endif
 
 #define BOARD_UARTS_LAYOUT 2
 
@@ -170,6 +172,8 @@
 #define SERVO_PIN_5 48 // PA1
 #define SERVO_PIN_6 22 // PA8
 
+#define MOTOR_LAYOUT_DEFAULT 0
+
 #define HAL_CONSOLE USB_Driver // console on USB
 //#define HAL_CONSOLE uart1Driver // console on radio
 #define HAL_CONSOLE_PORT 0
@@ -178,148 +182,26 @@
 
 /*
 
-    // @Param: MOTOR_LAYOUT
-    // @DisplayName: Motor layout scheme
-    // @Description: Selects how motors are numbered
-    // @Values: 0:ArduCopter, 1: Ardupilot with pins 2&3 for servos 2:OpenPilot,3:CleanFlight
-    // @User: Advanced
-    AP_GROUPINFO("_MOTOR_LAYOUT", 0,  HAL_F4Light, _motor_layout, 0),
-
-    // @Param: USE_SOFTSERIAL
-    // @DisplayName: Use SoftwareSerial driver
-    // @Description: Use SoftwareSerial driver instead SoftwareI2C on Input Port pins 7 & 8
-    // @Values: 0:disabled,1:enabled
-    // @User: Advanced
-    AP_GROUPINFO("_USE_SOFTSERIAL", 1,  HAL_F4Light, _use_softserial, 0),
-
-    // @Param: UART_SBUS
-    // @DisplayName: What UART to use as SBUS input
-    // @Description: Allows to use any UART as SBUS input
-    // @Values: 0:disabled,1:UART1, 2:UART2 etc
-    // @User: Advanced
-    AP_GROUPINFO("UART_SBUS", 3, AP_Param_Helper, _uart_sbus, 0), \
-    
-    // @Param: SERVO_MASK
-    // @DisplayName: Servo Mask of Input port
-    // @Description: Enable selected pins of Input port to be used as Servo Out
-    // @Values: 0:disabled,1:enable pin3 (PPM_1), 2: enable pin4 (PPM_2), 4: enable pin5 (UART6_TX) , 8: enable pin6 (UART6_RX), 16: enable pin7, 32: enable pin8
-    // @User: Advanced
-    AP_GROUPINFO("SERVO_MASK", 2, AP_Param_Helper, _servo_mask, 0) \
-
-    // @Param: CONNECT_COM
-    // @DisplayName: connect to COM port
-    // @Description: Allows to connect USB to arbitrary UART, thus allowing to configure devices on that UARTs. Auto-reset.
-    // @Values: 0:disabled, 1:connect to port 1, 2:connect to port 2, etc
-    // @User: Advanced
-    AP_GROUPINFO("CONNECT_COM", 2, AP_Param_Helper, _connect_com, 0) \
-
-    // @Param: CONNECT_ESC
-    // @DisplayName: connect to ESC inputs via 4wayIf
-    // @Description: Allows to connect USB to ESC inputs, thus allowing to configure ESC as on 4-wayIf. Auto-reset.
-    // @Values: 0:disabled, 1:connect uartA to ESC, 2: connect uartB to ESC, etc
-    // @User: Advanced
-    AP_GROUPINFO("CONNECT_ESC", 2, AP_Param_Helper, _connect_esc, 0) \
-
-    // @Param: FLEXI_I2C
-    // @DisplayName: use FlexiPort as I2C, not USART
-    // @Description: Allows to switch FlexiPort usage between USART and I2C modes
-    // @Values: 0:USART, 1:I2C
-    // @User: Advanced
-    AP_GROUPINFO("FLEXI_I2C",    6, AP_Param_Helper, _flexi_i2c, 0) \
-
-    // @Param: PWM_TYPE
-    // @DisplayName: PWM protocol used
-    // @Description: Allows to ignore MOT_PWM_TYPE  param and set PWM protocol independently
-    // @Values: 0:use MOT_PWM_TYPE, 1:OneShot 2:OneShot125 3:OneShot42 4:PWM125
-    // @User: Advanced
-    AP_GROUPINFO("PWM_TYPE",     7, AP_Param_Helper, _pwm_type, 0)
-    
-    // @Param: RC_INPUT
-    // @DisplayName: Type of RC input
-    // @Description: allows to force specified RC input port
-    // @Values: 0:auto, 1:PPM1 (pin3), 2: PPM2 (pin4) etc
-    // @User: Advanced
-    AP_GROUPINFO("RC_INPUT",     9, AP_Param_Helper, _rc_input, 0)
-
-    // @Param: AIBAO_FS
-    // @DisplayName: Support FailSafe for Walkera Aibao RC
-    // @Description: Allows to translate of  Walkera Aibao RC FailSafe to Ardupilot's failsafe
-    // @Values: 0: not translate, 1:translate
-    // @User: Advanced
-    AP_GROUPINFO("AIBAO_FS",     7, AP_Param_Helper, _aibao_fs, 0)
-
-    // @Param: RC_FS
-    // @DisplayName: Set time of RC failsafe
-    // @Description: if none of RC channel changes in that time, then failsafe triggers
-    // @Values: 0: turned off, >0 - time in seconds. Good values are starting 60s for digital protocols
-    // @User: Advanced
-    AP_GROUPINFO("RC_FS",        17, AP_Param_Helper, _rc_fs, 0)
 
 */
 
 #ifdef USB_MASSSTORAGE
 
 #define BOARD_HAL_VARINFO \
-    AP_GROUPINFO("MOTOR_LAYOUT", 1, AP_Param_Helper, _motor_layout, 0), \
-    AP_GROUPINFO("SOFTSERIAL",   2, AP_Param_Helper, _use_softserial, 0), \
-    AP_GROUPINFO("UART_SBUS",    3, AP_Param_Helper, _uart_sbus, 0), \
-    AP_GROUPINFO("SERVO_MASK",   4, AP_Param_Helper, _servo_mask, 0), \
-    AP_GROUPINFO("CONNECT_COM",  5, AP_Param_Helper, _connect_com, 0), \
-    AP_GROUPINFO("PWM_TYPE",     7, AP_Param_Helper, _pwm_type, 0), \
-    AP_GROUPINFO("CONNECT_ESC",  6, AP_Param_Helper, _connect_esc, 0), \
-    AP_GROUPINFO("DBG_WAYBACK",  8, AP_Param_Helper, _dbg_wayback, 0), \
-    AP_GROUPINFO("USB_STORAGE",  9, AP_Param_Helper, _usb_storage, 0), \
-    AP_GROUPINFO("TIME_OFFSET",  10, AP_Param_Helper, _time_offset, 0), \
-    AP_GROUPINFO("CONSOLE_UART", 11, AP_Param_Helper, _console_uart, HAL_CONSOLE_PORT), \
-    AP_GROUPINFO("EE_DEFERRED",  12, AP_Param_Helper, _eeprom_deferred, 0), \
-    AP_GROUPINFO("RC_INPUT",     13, AP_Param_Helper, _rc_input, 0), \
-    AP_GROUPINFO("AIBAO_FS",     14, AP_Param_Helper, _aibao_fs, 0), \
-    AP_GROUPINFO("OVERCLOCK",    15, AP_Param_Helper, _overclock, 0), \
-    AP_GROUPINFO("CORRECT_GYRO", 16, AP_Param_Helper, _correct_gyro, 0), \
-    AP_GROUPINFO("RC_FS",        17, AP_Param_Helper, _rc_fs, 0)
+    AP_GROUPINFO("USB_STORAGE",  30, AP_Param_Helper, _usb_storage, 0), \
+    AP_GROUPINFO("DBG_WAYBACK",  31, AP_Param_Helper, _dbg_wayback, 0), 
 
 #else
 
 #define BOARD_HAL_VARINFO \
-    AP_GROUPINFO("MOTOR_LAYOUT", 1, AP_Param_Helper, _motor_layout, 0), \
-    AP_GROUPINFO("SOFTSERIAL",   2, AP_Param_Helper, _use_softserial, 0), \
-    AP_GROUPINFO("UART_SBUS",    3, AP_Param_Helper, _uart_sbus, 0), \
-    AP_GROUPINFO("SERVO_MASK",   4, AP_Param_Helper, _servo_mask, 0), \
-    AP_GROUPINFO("CONNECT_COM",  5, AP_Param_Helper, _connect_com, 0), \
-    AP_GROUPINFO("PWM_TYPE",     7, AP_Param_Helper, _pwm_type, 0), \
-    AP_GROUPINFO("CONNECT_ESC",  6, AP_Param_Helper, _connect_esc, 0), \
-    AP_GROUPINFO("DBG_WAYBACK",  8, AP_Param_Helper, _dbg_wayback, 0), \
-    AP_GROUPINFO("TIME_OFFSET",  9, AP_Param_Helper, _time_offset, 0), \
-    AP_GROUPINFO("CONSOLE_UART", 10, AP_Param_Helper, _console_uart, HAL_CONSOLE_PORT), \
-    AP_GROUPINFO("EE_DEFERRED",  11, AP_Param_Helper, _eeprom_deferred, 0), \
-    AP_GROUPINFO("RC_INPUT",     12, AP_Param_Helper, _rc_input, 0), \
-    AP_GROUPINFO("AIBAO_FS",     13, AP_Param_Helper, _aibao_fs, 0), \
-    AP_GROUPINFO("OVERCLOCK",    14, AP_Param_Helper, _overclock, 0), \
-    AP_GROUPINFO("CORRECT_GYRO", 15, AP_Param_Helper, _correct_gyro, 0), \
-    AP_GROUPINFO("RC_FS",        16, AP_Param_Helper, _rc_fs, 0)
-
+    AP_GROUPINFO("DBG_WAYBACK",  30, AP_Param_Helper, _dbg_wayback, 0), 
 #endif
 
 
 // parameters
 #define BOARD_HAL_PARAMS \
-    AP_Int8 _motor_layout; \
-    AP_Int8 _uart_sbus; \
-    AP_Int8 _use_softserial; \
-    AP_Int8 _servo_mask; \
-    AP_Int8 _connect_com;  \
-    AP_Int8 _connect_esc; \
-    AP_Int8 _pwm_type; \
     AP_Int8 _dbg_wayback; \
-    AP_Int8 _usb_storage; \
-    AP_Int8 _time_offset; \
-    AP_Int8 _console_uart; \
-    AP_Int8 _eeprom_deferred; \
-    AP_Int8 _rc_input; \
-    AP_Int8 _aibao_fs; \
-    AP_Int8 _overclock; \
-    AP_Int8 _correct_gyro; \
-    AP_Int8 _rc_fs;
+    AP_Int8 _usb_storage; 
 
 #define WAYBACK_DEBUG
 

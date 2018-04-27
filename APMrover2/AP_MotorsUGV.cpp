@@ -47,7 +47,7 @@ const AP_Param::GroupInfo AP_MotorsUGV::var_info[] = {
 
     // @Param: THR_MIN
     // @DisplayName: Throttle minimum
-    // @Description: Throttle minimum percentage the autopilot will apply. This is mostly useful for rovers with internal combustion motors, to prevent the motor from cutting out in auto mode.
+    // @Description: Throttle minimum percentage the autopilot will apply. This is useful for handling a deadzone around low throttle and for preventing internal combustion motors cutting out during missions.
     // @Units: %
     // @Range: 0 20
     // @Increment: 1
@@ -79,6 +79,14 @@ const AP_Param::GroupInfo AP_MotorsUGV::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("THST_EXPO", 9, AP_MotorsUGV, _thrust_curve_expo, 0.0f),
 
+    // @Param: VEC_THR_BASE
+    // @DisplayName: Vector thrust throttle base
+    // @Description: Throttle level above which steering is scaled down when using vector thrust.  zero to disable vectored thrust
+    // @Units: %
+    // @Range: 0 100
+    // @User: Advanced
+    AP_GROUPINFO("VEC_THR_BASE", 10, AP_MotorsUGV, _vector_throttle_base, 0.0f),
+
     AP_GROUPEND
 };
 
@@ -98,6 +106,9 @@ void AP_MotorsUGV::init()
 
     // set safety output
     setup_safety_output();
+
+    // sanity check parameters
+    _vector_throttle_base = constrain_float(_vector_throttle_base, 0.0f, 100.0f);
 }
 
 // setup output in case of main CPU failure
@@ -157,13 +168,6 @@ void AP_MotorsUGV::set_throttle(float throttle)
 
     // check throttle is between -_throttle_max ~ +_throttle_max but outside -throttle_min ~ +throttle_min
     _throttle = constrain_float(throttle, -_throttle_max, _throttle_max);
-    if ((_throttle_min > 0) && (fabsf(_throttle) < _throttle_min)) {
-        if (is_negative(_throttle)) {
-            _throttle = -_throttle_min;
-        } else {
-            _throttle = _throttle_min;
-        }
-    }
 }
 
 /*
@@ -334,13 +338,14 @@ void AP_MotorsUGV::setup_pwm_type()
 {
     switch (_pwm_type) {
     case PWM_TYPE_ONESHOT:
+        hal.rcout->set_output_mode(0xFFFF, AP_HAL::RCOutput::MODE_PWM_ONESHOT);
+        break;
     case PWM_TYPE_ONESHOT125:
-        // tell HAL to do immediate output
-        hal.rcout->set_output_mode(AP_HAL::RCOutput::MODE_PWM_ONESHOT);
+        hal.rcout->set_output_mode(0xFFFF, AP_HAL::RCOutput::MODE_PWM_ONESHOT125);
         break;
     case PWM_TYPE_BRUSHED_WITH_RELAY:
     case PWM_TYPE_BRUSHED_BIPOLAR:
-        hal.rcout->set_output_mode(AP_HAL::RCOutput::MODE_PWM_BRUSHED);
+        hal.rcout->set_output_mode(0xFFFF, AP_HAL::RCOutput::MODE_PWM_BRUSHED);
         /*
          * Group 0: channels 0 1
          * Group 1: channels 4 5 6 7
@@ -359,12 +364,14 @@ void AP_MotorsUGV::setup_pwm_type()
 // output to regular steering and throttle channels
 void AP_MotorsUGV::output_regular(bool armed, float steering, float throttle)
 {
-    // always allow steering to move
-    SRV_Channels::set_output_scaled(SRV_Channel::k_steering, steering);
-
     // output to throttle channels
     if (armed) {
-        // handle armed case
+        // vectored thrust handling
+        if (have_vectored_thrust() && (fabsf(throttle) > _vector_throttle_base)) {
+            // scale steering down linearly as throttle increases above _vector_throttle_base
+            const float steering_scalar = constrain_float(_vector_throttle_base / fabsf(throttle), 0.0f, 1.0f);
+            steering *= steering_scalar;
+        }
         output_throttle(SRV_Channel::k_throttle, throttle);
     } else {
         // handle disarmed case
@@ -374,6 +381,9 @@ void AP_MotorsUGV::output_regular(bool armed, float steering, float throttle)
             SRV_Channels::set_output_limit(SRV_Channel::k_throttle, SRV_Channel::SRV_CHANNEL_LIMIT_TRIM);
         }
     }
+
+    // always allow steering to move
+    SRV_Channels::set_output_scaled(SRV_Channel::k_steering, steering);
 }
 
 // output to skid steering channels
@@ -479,7 +489,7 @@ void AP_MotorsUGV::slew_limit_throttle(float dt)
 {
     if (_slew_rate > 0) {
         // slew throttle
-        const float throttle_change_max = MAX(1.0f, _slew_rate * dt * 0.01f * (_throttle_max - _throttle_min));
+        const float throttle_change_max = MAX(1.0f, (float)_slew_rate * dt);
         if (_throttle > _throttle_prev + throttle_change_max) {
             _throttle = _throttle_prev + throttle_change_max;
             limit.throttle_upper = true;
@@ -501,10 +511,24 @@ void AP_MotorsUGV::set_limits_from_input(bool armed, float steering, float throt
     limit.throttle_upper = !armed || (throttle >= _throttle_max);
 }
 
-// scale a throttle using the _thrust_curve_expo parameter.  throttle should be in the range -100 to +100
+// scale a throttle using the _throttle_min and _thrust_curve_expo parameters.  throttle should be in the range -100 to +100
 float AP_MotorsUGV::get_scaled_throttle(float throttle) const
 {
-    // return immediatley if no scaling
+    // exit immediately if throttle is zero
+    if (is_zero(throttle)) {
+        return throttle;
+    }
+
+    // scale using throttle_min
+    if (_throttle_min > 0) {
+        if (is_negative(throttle)) {
+            throttle = -_throttle_min + (throttle * ((100.0f - _throttle_min) / 100.0f));
+        } else {
+            throttle = _throttle_min + (throttle * ((100.0f - _throttle_min) / 100.0f));
+        }
+    }
+
+    // skip further scaling if thrust curve disabled or invalid
     if (is_zero(_thrust_curve_expo) || (_thrust_curve_expo > 1.0f) || (_thrust_curve_expo < -1.0f)) {
         return throttle;
     }

@@ -43,6 +43,9 @@ void Copter::init_rc_in()
 
     // initialise throttle_zero flag
     ap.throttle_zero = true;
+
+    // Allow override by default at start
+    ap.rc_override_enable = true;
 }
 
  // init_rc_out -- initialise motors and check if pilot wants to perform ESC calibration
@@ -92,9 +95,8 @@ void Copter::read_radio()
 {
     uint32_t tnow_ms = millis();
 
-    if (hal.rcin->new_input()) {
+    if (RC_Channels::read_input()) {
         ap.new_radio_frame = true;
-        RC_Channels::set_pwm_all();
 
         set_throttle_and_failsafe(channel_throttle->get_radio_in());
         set_throttle_zero_flag(channel_throttle->get_control_in());

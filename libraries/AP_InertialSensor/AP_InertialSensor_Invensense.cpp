@@ -215,6 +215,10 @@ void AP_InertialSensor_Invensense::start()
         gdev = DEVTYPE_INS_ICM20789;
         adev = DEVTYPE_INS_ICM20789;
         break;
+    case Invensense_ICM20689:
+        gdev = DEVTYPE_INS_ICM20689;
+        adev = DEVTYPE_INS_ICM20689;
+        break;
     }
 
     /*
@@ -240,6 +244,10 @@ void AP_InertialSensor_Invensense::start()
         break;
 
     case Invensense_ICM20789:
+        temp_zero = 25;
+        temp_sensitivity = 0.003;
+        break;
+    case Invensense_ICM20689:
         temp_zero = 25;
         temp_sensitivity = 0.003;
         break;
@@ -298,6 +306,16 @@ void AP_InertialSensor_Invensense::start()
     _register_write(MPUREG_INT_ENABLE, BIT_RAW_RDY_EN);
     hal.scheduler->delay(1);
 
+    // clear interrupt on any read, and hold the data ready pin high
+    // until we clear the interrupt. We don't do this for the 20789 as
+    // that sensor has already setup the appropriate config inside the
+    // baro driver.
+    if (_mpu_type != Invensense_ICM20789) {    
+        uint8_t v = _register_read(MPUREG_INT_PIN_CFG) | BIT_INT_RD_CLEAR | BIT_LATCH_INT_EN;
+        v &= BIT_BYPASS_EN;
+        _register_write(MPUREG_INT_PIN_CFG, v);
+    }
+
     // now that we have initialised, we set the bus speed to high
     _dev->set_speed(AP_HAL::Device::SPEED_HIGH);
 
@@ -307,6 +325,10 @@ void AP_InertialSensor_Invensense::start()
     set_gyro_orientation(_gyro_instance, _rotation);
     set_accel_orientation(_accel_instance, _rotation);
 
+    // setup scale factors for fifo data after downsampling
+    _fifo_accel_scale = _accel_scale / (MAX(_fifo_downsample_rate,2)/2);
+    _fifo_gyro_scale = GYRO_SCALE / _fifo_downsample_rate;
+    
     // allocate fifo buffer
     _fifo_buffer = (uint8_t *)hal.util->malloc_type(MPU_FIFO_BUFFER_LEN * MPU_SAMPLE_SIZE, AP_HAL::Util::MEM_DMA_SAFE);
     if (_fifo_buffer == nullptr) {
@@ -464,11 +486,9 @@ bool AP_InertialSensor_Invensense::_accumulate_fast_sampling(uint8_t *samples, u
         _accum.count++;
 
         if (_accum.count == _fifo_downsample_rate) {
-            float ascale = _accel_scale / (_fifo_downsample_rate/2);
-            _accum.accel *= ascale;
 
-            float gscale = GYRO_SCALE / _fifo_downsample_rate;
-            _accum.gyro *= gscale;
+            _accum.accel *= _fifo_accel_scale;
+            _accum.gyro *= _fifo_gyro_scale;
             
             _rotate_and_correct_accel(_accel_instance, _accum.accel);
             _rotate_and_correct_gyro(_gyro_instance, _accum.gyro);
@@ -649,7 +669,7 @@ void AP_InertialSensor_Invensense::_set_filter_register(void)
             }
             // calculate rate we will be giving samples to the backend
             _backend_rate_hz *= (8 / _fifo_downsample_rate);
-            
+
             // for logging purposes set the oversamping rate
             _set_accel_oversampling(_accel_instance, _fifo_downsample_rate/2);
             _set_gyro_oversampling(_gyro_instance, _fifo_downsample_rate);
@@ -681,7 +701,7 @@ void AP_InertialSensor_Invensense::_set_filter_register(void)
             // setup for 4kHz accels
             _register_write(ICMREG_ACCEL_CONFIG2, ICM_ACC_FCHOICE_B, true);
         } else {
-            uint8_t fifo_size = (_mpu_type == Invensense_ICM20789) ? 1:0;
+            uint8_t fifo_size = (_mpu_type == Invensense_ICM20789 || _mpu_type == Invensense_ICM20689) ? 1:0;
             _register_write(ICMREG_ACCEL_CONFIG2, ICM_ACC_DLPF_CFG_218HZ | (fifo_size<<6), true);
         }
     }
@@ -713,6 +733,9 @@ bool AP_InertialSensor_Invensense::_check_whoami(void)
     case MPU_WHOAMI_ICM20789:
     case MPU_WHOAMI_ICM20789_R1:
         _mpu_type = Invensense_ICM20789;
+        return true;
+    case MPU_WHOAMI_ICM20689:
+        _mpu_type = Invensense_ICM20689;
         return true;
     }
     // not a value WHOAMI result

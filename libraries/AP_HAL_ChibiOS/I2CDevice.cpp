@@ -22,6 +22,8 @@
 #include "ch.h"
 #include "hal.h"
 
+#if HAL_USE_I2C == TRUE
+
 static const struct I2CInfo {
     struct I2CDriver *i2c;
     uint8_t dma_channel_rx;
@@ -47,8 +49,8 @@ I2CBus I2CDeviceManager::businfo[ARRAY_SIZE_SIMPLE(I2CD)];
 void I2CBus::dma_init(void)
 {
     dma_handle = new Shared_DMA(I2CD[busnum].dma_channel_tx, I2CD[busnum].dma_channel_rx, 
-                                FUNCTOR_BIND_MEMBER(&I2CBus::dma_allocate, void),
-                                FUNCTOR_BIND_MEMBER(&I2CBus::dma_deallocate, void));    
+                                FUNCTOR_BIND_MEMBER(&I2CBus::dma_allocate, void, Shared_DMA *),
+                                FUNCTOR_BIND_MEMBER(&I2CBus::dma_deallocate, void, Shared_DMA *));    
 }
 
 // Clear Bus to avoid bus lockup
@@ -59,15 +61,15 @@ void I2CBus::clear_all()
 #endif
 
 #if defined(HAL_GPIO_PIN_I2C2_SCL) && defined(HAL_I2C2_SCL_AF)
-    clear_bus(HAL_GPIO_PIN_I2C1_SCL, HAL_I2C1_SCL_AF);
+    clear_bus(HAL_GPIO_PIN_I2C2_SCL, HAL_I2C2_SCL_AF);
 #endif
 
 #if defined(HAL_GPIO_PIN_I2C3_SCL) && defined(HAL_I2C3_SCL_AF)
-    clear_bus(HAL_GPIO_PIN_I2C1_SCL, HAL_I2C1_SCL_AF);
+    clear_bus(HAL_GPIO_PIN_I2C3_SCL, HAL_I2C3_SCL_AF);
 #endif
 
 #if defined(HAL_GPIO_PIN_I2C4_SCL) && defined(HAL_I2C4_SCL_AF)
-    clear_bus(HAL_GPIO_PIN_I2C1_SCL, HAL_I2C1_SCL_AF);
+    clear_bus(HAL_GPIO_PIN_I2C4_SCL, HAL_I2C4_SCL_AF);
 #endif
 }
 
@@ -133,7 +135,7 @@ I2CDevice::~I2CDevice()
 /*
   allocate DMA channel
  */
-void I2CBus::dma_allocate(void)
+void I2CBus::dma_allocate(Shared_DMA *ctx)
 {
     if (!i2c_started) {
         osalDbgAssert(I2CD[busnum].i2c->state == I2C_STOP, "i2cStart state");
@@ -146,7 +148,7 @@ void I2CBus::dma_allocate(void)
 /*
   deallocate DMA channel
  */
-void I2CBus::dma_deallocate(void)
+void I2CBus::dma_deallocate(Shared_DMA *)
 {
     if (i2c_started) {
         osalDbgAssert(I2CD[busnum].i2c->state == I2C_READY, "i2cStart state");
@@ -283,3 +285,5 @@ I2CDeviceManager::get_device(uint8_t bus, uint8_t address,
     auto dev = AP_HAL::OwnPtr<AP_HAL::I2CDevice>(new I2CDevice(bus, address, bus_clock, use_smbus, timeout_ms));
     return dev;
 }
+
+#endif // HAL_USE_I2C

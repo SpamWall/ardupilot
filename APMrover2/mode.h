@@ -116,7 +116,7 @@ protected:
 
     // calculates the amount of throttle that should be output based
     // on things like proximity to corners and current speed
-    virtual void calc_throttle(float target_speed, bool nudge_allowed = true);
+    virtual void calc_throttle(float target_speed, bool nudge_allowed, bool avoidance_enabled);
 
     // performs a controlled stop. returns true once vehicle has stopped
     bool stop_vehicle();
@@ -135,6 +135,9 @@ protected:
     // should be called after calc_steering_to_waypoint and before calc_throttle
     // relies on these internal members being updated: lateral_acceleration, _yaw_error_cd, _distance_to_destination
     float calc_reduced_speed_for_turn_or_distance(float desired_speed);
+
+    // calculate vehicle stopping location using current location, velocity and maximum acceleration
+    void calc_stopping_location(Location& stopping_loc);
 
     // references to avoid code churn:
     class AP_AHRS &ahrs;
@@ -156,6 +159,7 @@ protected:
     float _desired_speed;       // desired speed in m/s
     float _desired_speed_final; // desired speed in m/s when we reach the destination
     float _speed_error;         // ground speed error in m/s
+    uint32_t last_steer_to_wp_ms;   // system time of last call to calc_steering_to_waypoint
 };
 
 
@@ -172,9 +176,9 @@ public:
     // attributes for mavlink system status reporting
     bool has_manual_input() const override { return true; }
 
-    // acro mode requires a velocity estimate
+    // acro mode requires a velocity estimate for non skid-steer rovers
     bool requires_position() const override { return false; }
-    bool requires_velocity() const override { return true; }
+    bool requires_velocity() const override;
 };
 
 
@@ -190,7 +194,7 @@ public:
 
     // methods that affect movement of the vehicle in this mode
     void update() override;
-    void calc_throttle(float target_speed, bool nudge_allowed = true);
+    void calc_throttle(float target_speed, bool nudge_allowed, bool avoidance_enabled);
 
     // attributes of the mode
     bool is_autopilot_mode() const override { return true; }
