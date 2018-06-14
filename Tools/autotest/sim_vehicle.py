@@ -471,11 +471,11 @@ def run_in_terminal_window(autotest, name, cmd):
         out = out.decode('utf-8')
         import re
         p = re.compile('tab 1 of window id (.*)')
-                        
+
         tstart = time.time()
         while time.time() - tstart < 5:
             tabs = p.findall(out)
-            
+
             if len(tabs) > 0:
                 break
 
@@ -604,14 +604,15 @@ def start_mavproxy(opts, stuff):
         if stuff["sitl-port"]:
             cmd.extend(["--sitl", simout_port])
 
-    ports = [p + 10 * cmd_opts.instance for p in [14550, 14551]]
-    for port in ports:
-        if os.path.isfile("/ardupilot.vagrant"):
-            # We're running inside of a vagrant guest; forward our
-            # mavlink out to the containing host OS
-            cmd.extend(["--out", "10.0.2.2:" + str(port)])
-        else:
-            cmd.extend(["--out", "127.0.0.1:" + str(port)])
+    if not opts.no_extra_ports:
+        ports = [p + 10 * cmd_opts.instance for p in [14550, 14551]]
+        for port in ports:
+            if os.path.isfile("/ardupilot.vagrant"):
+                # We're running inside of a vagrant guest; forward our
+                # mavlink out to the containing host OS
+                cmd.extend(["--out", "10.0.2.2:" + str(port)])
+            else:
+                cmd.extend(["--out", "127.0.0.1:" + str(port)])
 
     if opts.tracker:
         cmd.extend(["--load-module", "tracker"])
@@ -628,9 +629,36 @@ def start_mavproxy(opts, stuff):
     if "extra_mavlink_cmds" in stuff:
         extra_cmd += " " + stuff["extra_mavlink_cmds"]
 
+    # Parsing the arguments to pass to mavproxy, split args on space and "=" signs and ignore those signs within quotation marks
     if opts.mavproxy_args:
-        # this could be a lot better:
-        cmd.extend(opts.mavproxy_args.split(" "))
+        # It would be great if this could be done with regex
+        mavargs = opts.mavproxy_args.split(" ")
+        # Find the arguments with '=' in them and split them up
+        for i, x in enumerate(mavargs):
+            if '=' in x:
+                mavargs[i] = x.split('=')[0]
+                mavargs.insert(i+1, x.split('=')[1])
+        # Use this flag to tell if parsing character inbetween a pair of quotation marks
+        inString = False
+        beginStringIndex = []
+        endStringIndex = []
+        # Iterate through the arguments, looking for the arguments that
+        # begin with a quotation mark and the ones that end with a quotation mark
+        for i, x in enumerate(mavargs):
+            if not inString and x[0] == "\"":
+                beginStringIndex.append(i)
+                mavargs[i] = x[1:]
+                inString = True
+            elif inString and x[-1] == "\"":
+                endStringIndex.append(i)
+                inString = False
+                mavargs[i] = x[:-1]
+        # Replace the list items with one string to be passed into mavproxy
+        for begin, end in zip(beginStringIndex, endStringIndex):
+            replacement = " ".join(mavargs[begin:end+1])
+            mavargs[begin] = replacement
+            mavargs = mavargs[0:begin+1] + mavargs[end+1:]
+        cmd.extend(mavargs)
 
     # compatibility pass-through parameters (for those that don't want
     # to use -C :-)
@@ -838,6 +866,11 @@ group_sim.add_option("", "--add-param-file",
                      type='string',
                      default=None,
                      help="Add a parameters file to use")
+group_sim.add_option("", "--no-extra-ports",
+                     action='store_true',
+                     dest='no_extra_ports',
+                     default=False,
+                     help="Disable setup of UDP 14550 and 14551 output")
 parser.add_option_group(group_sim)
 
 
@@ -992,10 +1025,7 @@ else:
         do_build_parameters(cmd_opts.vehicle)
 
     if cmd_opts.build_system == "waf":
-        if cmd_opts.debug:
-            binary_basedir = "build/sitl-debug"
-        else:
-            binary_basedir = "build/sitl"
+        binary_basedir = "build/sitl"
         vehicle_binary = os.path.join(find_root_dir(),
                                       binary_basedir,
                                       frame_infos["waf_target"])

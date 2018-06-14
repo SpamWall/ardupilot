@@ -162,13 +162,6 @@ void Copter::update_optical_flow(void)
 }
 #endif  // OPTFLOW == ENABLED
 
-// read the receiver RSSI as an 8 bit number for MAVLink
-// RC_CHANNELS_SCALED message
-void Copter::read_receiver_rssi(void)
-{
-    receiver_rssi = rssi.read_receiver_rssi_uint8();
-}
-
 void Copter::compass_cal_update()
 {
     static uint32_t compass_cal_stick_gesture_begin = 0;
@@ -375,7 +368,7 @@ void Copter::update_sensor_status_flags(void)
     }
 
 #if PROXIMITY_ENABLED == ENABLED
-    if (copter.g2.proximity.get_status() < AP_Proximity::Proximity_Good) {
+    if (copter.g2.proximity.get_status() == AP_Proximity::Proximity_NoData) {
         control_sensors_health &= ~MAV_SYS_STATUS_SENSOR_LASER_POSITION;
     }
 #endif

@@ -522,7 +522,8 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs)
 void DataFlash_Class::Log_Write_EKF_Timing(const char *name, uint64_t time_us, const struct ekf_timing &timing)
 {
     Log_Write(name,
-              "TimeUS,Cnt,IMUMin,IMUMax,EKFMin,EKFMax,AngMin,AngMax,VelMin,VelMax", "QIffffffff",
+              "TimeUS,Cnt,IMUMin,IMUMax,EKFMin,EKFMax,AngMin,AngMax,VMin,VMax",
+              "QIffffffff",
               time_us,
               timing.count,
               (double)timing.dtIMUavg_min,
@@ -543,8 +544,6 @@ void DataFlash_Class::Log_Write_EKF2(AP_AHRS_NavEKF &ahrs)
     Vector2f posNE;
     float posD;
     Vector3f velNED;
-    Vector3f dAngBias;
-    Vector3f dVelBias;
     Vector3f gyroBias;
     float posDownDeriv;
     Location originLLH;
@@ -885,8 +884,6 @@ void DataFlash_Class::Log_Write_EKF3(AP_AHRS_NavEKF &ahrs)
     Vector2f posNE;
     float posD;
     Vector3f velNED;
-    Vector3f dAngBias;
-    Vector3f dVelBias;
     Vector3f gyroBias;
     float posDownDeriv;
     Location originLLH;

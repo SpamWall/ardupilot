@@ -28,7 +28,6 @@
 #include "AP_GPS_MTK.h"
 #include "AP_GPS_MTK19.h"
 #include "AP_GPS_NMEA.h"
-#include "AP_GPS_QURT.h"
 #include "AP_GPS_SBF.h"
 #include "AP_GPS_SBP.h"
 #include "AP_GPS_SBP2.h"
@@ -68,7 +67,7 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     // @Param: TYPE
     // @DisplayName: GPS type
     // @Description: GPS type
-    // @Values: 0:None,1:AUTO,2:uBlox,3:MTK,4:MTK19,5:NMEA,6:SiRF,7:HIL,8:SwiftNav,9:UAVCAN,10:SBF,11:GSOF,12:QURT,13:ERB,14:MAV,15:NOVA
+    // @Values: 0:None,1:AUTO,2:uBlox,3:MTK,4:MTK19,5:NMEA,6:SiRF,7:HIL,8:SwiftNav,9:UAVCAN,10:SBF,11:GSOF,13:ERB,14:MAV,15:NOVA
     // @RebootRequired: True
     // @User: Advanced
     AP_GROUPINFO("TYPE",    0, AP_GPS, _type[0], HAL_GPS_TYPE_DEFAULT),
@@ -76,7 +75,7 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     // @Param: TYPE2
     // @DisplayName: 2nd GPS type
     // @Description: GPS type of 2nd GPS
-    // @Values: 0:None,1:AUTO,2:uBlox,3:MTK,4:MTK19,5:NMEA,6:SiRF,7:HIL,8:SwiftNav,9:UAVCAN,10:SBF,11:GSOF,12:QURT,13:ERB,14:MAV,15:NOVA
+    // @Values: 0:None,1:AUTO,2:uBlox,3:MTK,4:MTK19,5:NMEA,6:SiRF,7:HIL,8:SwiftNav,9:UAVCAN,10:SBF,11:GSOF,13:ERB,14:MAV,15:NOVA
     // @RebootRequired: True
     // @User: Advanced
     AP_GROUPINFO("TYPE2",   1, AP_GPS, _type[1], 0),
@@ -417,14 +416,6 @@ void AP_GPS::detect_instance(uint8_t instance)
     state[instance].vdop = GPS_UNKNOWN_DOP;
     
     switch (_type[instance]) {
-#if CONFIG_HAL_BOARD == HAL_BOARD_QURT
-    case GPS_TYPE_QURT:
-        dstate->auto_detected_baud = false; // specified, not detected
-        new_gps = new AP_GPS_QURT(*this, state[instance], _port[instance]);
-        goto found_gps;
-        break;
-#endif
-
     // user has to explicitly set the MAV type, do not use AUTO
     // do not try to detect the MAV type, assume it's there
     case GPS_TYPE_MAV:
@@ -437,28 +428,29 @@ void AP_GPS::detect_instance(uint8_t instance)
     // user has to explicitly set the UAVCAN type, do not use AUTO
     case GPS_TYPE_UAVCAN:
         dstate->auto_detected_baud = false; // specified, not detected
-        if (AP_BoardConfig_CAN::get_can_num_ifaces() >= 1) {
-            for (uint8_t i = 0; i < MAX_NUMBER_OF_CAN_DRIVERS; i++) {
-                if (hal.can_mgr[i] != nullptr) {
-                    AP_UAVCAN *uavcan = hal.can_mgr[i]->get_UAVCAN();
+        if (AP_BoardConfig_CAN::get_can_num_ifaces() == 0) {
+            return;
+        }
+        for (uint8_t i = 0; i < MAX_NUMBER_OF_CAN_DRIVERS; i++) {
+            AP_UAVCAN *ap_uavcan = AP_UAVCAN::get_uavcan(i);
+            if (ap_uavcan == nullptr) {
+                continue;
+            }
+            
+            uint8_t gps_node = ap_uavcan->find_gps_without_listener();
+            if (gps_node == UINT8_MAX) {
+                continue;
+            }
 
-                    if (uavcan != nullptr) {
-                        uint8_t gps_node = uavcan->find_gps_without_listener();
-
-                        if (gps_node != UINT8_MAX) {
-                            new_gps = new AP_GPS_UAVCAN(*this, state[instance], nullptr);
-                            ((AP_GPS_UAVCAN*) new_gps)->set_uavcan_manager(i);
-                            if (uavcan->register_gps_listener_to_node(new_gps, gps_node)) {
-                                if (AP_BoardConfig_CAN::get_can_debug() >= 2) {
-                                    printf("AP_GPS_UAVCAN registered\n\r");
-                                }
-                                goto found_gps;
-                            } else {
-                                delete new_gps;
-                            }
-                        }
-                    }
+            new_gps = new AP_GPS_UAVCAN(*this, state[instance], nullptr);
+            ((AP_GPS_UAVCAN*) new_gps)->set_uavcan_manager(i);
+            if (ap_uavcan->register_gps_listener_to_node(new_gps, gps_node)) {
+                if (AP_BoardConfig_CAN::get_can_debug() >= 2) {
+                    printf("AP_GPS_UAVCAN registered\n\r");
                 }
+                goto found_gps;
+            } else {
+                delete new_gps;
             }
         }
         return;

@@ -19,6 +19,7 @@
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_HAL/utility/RingBuffer.h>
 #include "GPIO.h"
+#include "hwdef/common/stm32_util.h"
 
 #if HAL_USE_PWM == TRUE
 
@@ -59,7 +60,7 @@ void RCOutput::init()
                 group.chan[j] = CHAN_DISABLED;
             }
             if (group.chan[j] != CHAN_DISABLED) {
-                total_channels = MAX(total_channels, group.chan[j]+1);
+                num_fmu_channels = MAX(num_fmu_channels, group.chan[j]+1);
                 group.ch_mask |= (1U<<group.chan[j]);
             }
         }
@@ -74,7 +75,6 @@ void RCOutput::init()
         iomcu.init();
         // with IOMCU the local (FMU) channels start at 8
         chan_offset = 8;
-        total_channels += chan_offset;
     }
 #endif
     chMtxObjectInit(&trigger_mutex);
@@ -169,6 +169,9 @@ void RCOutput::set_freq(uint32_t chmask, uint16_t freq_hz)
 #if HAL_WITH_IO_MCU
     if (AP_BoardConfig::io_enabled()) {
         // change frequency on IOMCU
+        if (freq_hz > 50) {
+            io_fast_channel_mask = chmask;
+        }
         iomcu.set_freq(chmask, freq_hz);
     }
 #endif
@@ -233,7 +236,7 @@ void RCOutput::set_default_rate(uint16_t freq_hz)
 
 uint16_t RCOutput::get_freq(uint8_t chan)
 {
-    if (chan >= total_channels) {
+    if (chan >= max_channels) {
         return 0;
     }
 #if HAL_WITH_IO_MCU
@@ -257,7 +260,7 @@ uint16_t RCOutput::get_freq(uint8_t chan)
 
 void RCOutput::enable_ch(uint8_t chan)
 {
-    if (chan >= total_channels) {
+    if (chan >= max_channels) {
         return;
     }
     if (chan < chan_offset) {
@@ -277,7 +280,7 @@ void RCOutput::enable_ch(uint8_t chan)
 
 void RCOutput::disable_ch(uint8_t chan)
 {
-    if (chan >= total_channels) {
+    if (chan >= max_channels) {
         return;
     }
     if (chan < chan_offset) {
@@ -298,7 +301,7 @@ void RCOutput::disable_ch(uint8_t chan)
 
 void RCOutput::write(uint8_t chan, uint16_t period_us)
 {
-    if (chan >= total_channels) {
+    if (chan >= max_channels) {
         return;
     }
     last_sent[chan] = period_us;
@@ -307,7 +310,7 @@ void RCOutput::write(uint8_t chan, uint16_t period_us)
     // handle IO MCU channels
     if (AP_BoardConfig::io_enabled()) {
         uint16_t io_period_us = period_us;
-        if (iomcu_oneshot125) {
+        if (iomcu_oneshot125 && ((1U<<chan) & io_fast_channel_mask)) {
             // the iomcu only has one oneshot setting, so we need to scale by a factor
             // of 8 here for oneshot125
             io_period_us /= 8;
@@ -327,9 +330,12 @@ void RCOutput::write(uint8_t chan, uint16_t period_us)
     chan -= chan_offset;
 
     period[chan] = period_us;
-    num_channels = MAX(chan+1, num_channels);
-    if (!corked) {
-        push_local();
+
+    if (chan < num_fmu_channels) {
+        active_fmu_channels = MAX(chan+1, active_fmu_channels);
+        if (!corked) {
+            push_local();
+        }
     }
 }
 
@@ -338,10 +344,10 @@ void RCOutput::write(uint8_t chan, uint16_t period_us)
  */
 void RCOutput::push_local(void)
 {
-    if (num_channels == 0) {
+    if (active_fmu_channels == 0) {
         return;
     }
-    uint16_t outmask = (1U<<num_channels)-1;
+    uint16_t outmask = (1U<<active_fmu_channels)-1;
     outmask &= en_mask;
 
     uint16_t widest_pulse = 0;
@@ -417,7 +423,7 @@ void RCOutput::push_local(void)
 
 uint16_t RCOutput::read(uint8_t chan)
 {
-    if (chan >= total_channels) {
+    if (chan >= max_channels) {
         return 0;
     }
 #if HAL_WITH_IO_MCU
@@ -431,8 +437,8 @@ uint16_t RCOutput::read(uint8_t chan)
 
 void RCOutput::read(uint16_t* period_us, uint8_t len)
 {
-    if (len > total_channels) {
-        len = total_channels;
+    if (len > max_channels) {
+        len = max_channels;
     }
 #if HAL_WITH_IO_MCU
     for (uint8_t i=0; i<MIN(len, chan_offset); i++) {
@@ -450,7 +456,7 @@ void RCOutput::read(uint16_t* period_us, uint8_t len)
 
 uint16_t RCOutput::read_last_sent(uint8_t chan)
 {
-    if (chan >= total_channels) {
+    if (chan >= max_channels) {
         return 0;
     }
     return last_sent[chan];
@@ -458,8 +464,8 @@ uint16_t RCOutput::read_last_sent(uint8_t chan)
 
 void RCOutput::read_last_sent(uint16_t* period_us, uint8_t len)
 {
-    if (len > total_channels) {
-        len = total_channels;
+    if (len > max_channels) {
+        len = max_channels;
     }
     for (uint8_t i=0; i<len; i++) {
         period_us[i] = read_last_sent(i);
@@ -644,6 +650,9 @@ void RCOutput::set_output_mode(uint16_t mask, enum output_mode mode)
         if (mode_requires_dma(mode) && !group.have_up_dma) {
             mode = MODE_PWM_NONE;
         }
+        if (mode > MODE_PWM_NORMAL) {
+            fast_channel_mask |= group.ch_mask;
+        }
         if (group.current_mode != mode) {
             group.current_mode = mode;
             set_group_mode(group);
@@ -657,7 +666,7 @@ void RCOutput::set_output_mode(uint16_t mask, enum output_mode mode)
         iomcu_oneshot125 = (mode == MODE_PWM_ONESHOT125);
         // also setup IO to use a 1Hz frequency, so we only get output
         // when we trigger
-        iomcu.set_freq(0xFF, 1);
+        iomcu.set_freq(io_fast_channel_mask, 1);
         return iomcu.set_oneshot_mode();
     }
 #endif
@@ -1087,10 +1096,12 @@ bool RCOutput::serial_write_bytes(const uint8_t *bytes, uint16_t len)
             return false;
         }
     }
-    serial_group->dma_handle->unlock();
+
     // add a small delay for last word of output to have completely
     // finished
-    hal.scheduler->delay_microseconds(10);
+    hal.scheduler->delay_microseconds(25);
+    
+    serial_group->dma_handle->unlock();
     return true;
 }
 

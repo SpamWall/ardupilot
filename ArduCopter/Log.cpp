@@ -102,7 +102,7 @@ struct PACKED log_Control_Tuning {
     float    desired_alt;
     float    inav_alt;
     int32_t  baro_alt;
-    int16_t  desired_rangefinder_alt;
+    float    desired_rangefinder_alt;
     int16_t  rangefinder_alt;
     float    terr_alt;
     int16_t  target_climb_rate;
@@ -120,6 +120,12 @@ void Copter::Log_Write_Control_Tuning()
     }
 #endif
 
+    float _target_rangefinder_alt;
+    if (target_rangefinder_alt_used) {
+        _target_rangefinder_alt = target_rangefinder_alt * 0.01f; // cm->m
+    } else {
+        _target_rangefinder_alt = DataFlash.quiet_nan();
+    }
     struct log_Control_Tuning pkt = {
         LOG_PACKET_HEADER_INIT(LOG_CONTROL_TUNING_MSG),
         time_us             : AP_HAL::micros64(),
@@ -130,7 +136,7 @@ void Copter::Log_Write_Control_Tuning()
         desired_alt         : pos_control->get_alt_target() / 100.0f,
         inav_alt            : inertial_nav.get_altitude() / 100.0f,
         baro_alt            : baro_alt,
-        desired_rangefinder_alt : (int16_t)target_rangefinder_alt,
+        desired_rangefinder_alt : _target_rangefinder_alt,
         rangefinder_alt     : rangefinder_state.alt_cm,
         terr_alt            : terr_alt,
         target_climb_rate   : (int16_t)pos_control->get_vel_target_z(),
@@ -361,21 +367,6 @@ void Copter::Log_Write_Parameter_Tuning(uint8_t param, float tuning_val, int16_t
     DataFlash.WriteBlock(&pkt_tune, sizeof(pkt_tune));
 }
 
-// log EKF origin and ahrs home to dataflash
-void Copter::Log_Write_Home_And_Origin()
-{
-    // log ekf origin if set
-    Location ekf_orig;
-    if (ahrs.get_origin(ekf_orig)) {
-        DataFlash.Log_Write_Origin(LogOriginType::ekf_origin, ekf_orig);
-    }
-
-    // log ahrs home if set
-    if (ahrs.home_is_set()) {
-        DataFlash.Log_Write_Origin(LogOriginType::ahrs_home, ahrs.get_home());
-    }
-}
-
 // logs when baro or compass becomes unhealthy
 void Copter::Log_Sensor_Health()
 {
@@ -507,7 +498,7 @@ const struct LogStructure Copter::log_structure[] = {
       "OF",   "QBffff",   "TimeUS,Qual,flowX,flowY,bodyX,bodyY", "s-EEEE", "F-0000" },
 #endif
     { LOG_CONTROL_TUNING_MSG, sizeof(log_Control_Tuning),
-      "CTUN", "Qffffffeccfhh", "TimeUS,ThI,ABst,ThO,ThH,DAlt,Alt,BAlt,DSAlt,SAlt,TAlt,DCRt,CRt", "s----mmmmmmnn", "F----00BBBBBB" },
+      "CTUN", "Qffffffefcfhh", "TimeUS,ThI,ABst,ThO,ThH,DAlt,Alt,BAlt,DSAlt,SAlt,TAlt,DCRt,CRt", "s----mmmmmmnn", "F----00B0BBBB" },
     { LOG_MOTBATT_MSG, sizeof(log_MotBatt),
       "MOTB", "Qffff",  "TimeUS,LiftMax,BatVolt,BatRes,ThLimit", "s-vw-", "F-00-" },
     { LOG_EVENT_MSG, sizeof(log_Event),         
@@ -544,7 +535,7 @@ void Copter::Log_Write_Vehicle_Startup_Messages()
 #if AC_RALLY
     DataFlash.Log_Write_Rally(rally);
 #endif
-    Log_Write_Home_And_Origin();
+    ahrs.Log_Write_Home_And_Origin();
     gps.Write_DataFlash_Log_Startup_messages();
 }
 
@@ -569,11 +560,9 @@ void Copter::Log_Write_Data(uint8_t id, uint16_t value) {}
 void Copter::Log_Write_Data(uint8_t id, float value) {}
 void Copter::Log_Write_Error(uint8_t sub_system, uint8_t error_code) {}
 void Copter::Log_Write_Parameter_Tuning(uint8_t param, float tuning_val, int16_t control_in, int16_t tune_low, int16_t tune_high) {}
-void Copter::Log_Write_Home_And_Origin() {}
 void Copter::Log_Sensor_Health() {}
 void Copter::Log_Write_Precland() {}
 void Copter::Log_Write_GuidedTarget(uint8_t target_type, const Vector3f& pos_target, const Vector3f& vel_target) {}
-void Copter::Log_Write_Proximity() {}
 void Copter::Log_Write_Vehicle_Startup_Messages() {}
 
 #if FRAME_CONFIG == HELI_FRAME

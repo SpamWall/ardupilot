@@ -423,7 +423,7 @@ private:
 #endif
 
 #if AVOIDANCE_ENABLED == ENABLED
-    AC_Avoid avoid{ahrs, inertial_nav, fence, g2.proximity, &g2.beacon};
+    AC_Avoid avoid{ahrs, fence, g2.proximity, &g2.beacon};
 #endif
 
     // Rally library
@@ -436,8 +436,13 @@ private:
     AP_Terrain terrain{ahrs, mission, rally};
 #endif
 
-    // use this to prevent recursion during sensor init
-    bool in_mavlink_delay;
+    // used to allow attitude and depth control without a position system
+    struct attitude_no_gps_struct {
+        uint32_t last_message_ms;
+        mavlink_set_attitude_target_t packet;
+    };
+
+    attitude_no_gps_struct set_attitude_target_no_gps {0};
 
     // Top-level logic
     // setup the var_info table
@@ -477,20 +482,12 @@ private:
     void gcs_send_heartbeat(void);
     void gcs_send_deferred(void);
     void send_heartbeat(mavlink_channel_t chan);
-    void send_attitude(mavlink_channel_t chan);
-    void send_limits_status(mavlink_channel_t chan);
     void send_extended_status1(mavlink_channel_t chan);
-    void send_location(mavlink_channel_t chan);
     void send_nav_controller_output(mavlink_channel_t chan);
-    void send_simstate(mavlink_channel_t chan);
-    void send_radio_out(mavlink_channel_t chan);
-    void send_vfr_hud(mavlink_channel_t chan);
 #if RPM_ENABLED == ENABLED
     void send_rpm(mavlink_channel_t chan);
     void rpm_update();
 #endif
-    void send_temperature(mavlink_channel_t chan);
-    bool send_info(mavlink_channel_t chan);
     void send_pid_tuning(mavlink_channel_t chan);
     void gcs_data_stream_send(void);
     void gcs_check_input(void);
@@ -507,7 +504,6 @@ private:
     void Log_Write_Data(uint8_t id, uint16_t value);
     void Log_Write_Data(uint8_t id, float value);
     void Log_Write_Error(uint8_t sub_system, uint8_t error_code);
-    void Log_Write_Home_And_Origin();
     void Log_Sensor_Health();
     void Log_Write_GuidedTarget(uint8_t target_type, const Vector3f& pos_target, const Vector3f& vel_target);
     void Log_Write_Vehicle_Startup_Messages();
@@ -522,7 +518,6 @@ private:
     void set_home_to_current_location_inflight();
     bool set_home_to_current_location(bool lock);
     bool set_home(const Location& loc, bool lock);
-    void set_ekf_origin(const Location& loc);
     bool far_from_EKF_origin(const Location& loc);
     void set_system_time_from_GPS();
     void exit_mission();
@@ -736,6 +731,3 @@ public:
 
 extern const AP_HAL::HAL& hal;
 extern Sub sub;
-
-using AP_HAL::millis;
-using AP_HAL::micros;

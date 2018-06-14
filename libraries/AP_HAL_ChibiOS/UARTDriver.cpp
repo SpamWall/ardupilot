@@ -23,6 +23,7 @@
 #include "shared_dma.h"
 #include <AP_Math/AP_Math.h>
 #include "Scheduler.h"
+#include "hwdef/common/stm32_util.h"
 
 extern const AP_HAL::HAL& hal;
 
@@ -53,7 +54,6 @@ uint32_t UARTDriver::last_thread_run_us;
 #define EVT_DATA EVENT_MASK(0)
 
 UARTDriver::UARTDriver(uint8_t _serial_num) :
-tx_bounce_buf_ready(true),
 serial_num(_serial_num),
 sdef(_serial_tab[_serial_num]),
 _baudrate(57600),
@@ -114,12 +114,21 @@ void UARTDriver::thread_init(void)
 }
 
 
+/*
+  hook to allow printf() to work on hal.console when we don't have a
+  dedicated debug console
+ */
+static int hal_console_vprintf(const char *fmt, va_list arg)
+{
+    hal.console->vprintf(fmt, arg);
+    return 1; // wrong length, but doesn't matter for what this is used for
+}
+
+
 void UARTDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
 {
     thread_init();
     
-    hal.gpio->pinMode(2, HAL_GPIO_OUTPUT);
-    hal.gpio->pinMode(3, HAL_GPIO_OUTPUT);
     if (sdef.serial == nullptr) {
         return;
     }
@@ -155,6 +164,14 @@ void UARTDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
         _baudrate = b;
     }
 
+    if (rx_bounce_buf == nullptr) {
+        rx_bounce_buf = (uint8_t *)hal.util->malloc_type(RX_BOUNCE_BUFSIZE, AP_HAL::Util::MEM_DMA_SAFE);
+    }
+    if (tx_bounce_buf == nullptr) {
+        tx_bounce_buf = (uint8_t *)hal.util->malloc_type(TX_BOUNCE_BUFSIZE, AP_HAL::Util::MEM_DMA_SAFE);
+        tx_bounce_buf_ready = true;
+    }
+    
     /*
       allocate the write buffer
      */
@@ -201,7 +218,11 @@ void UARTDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
                                                (void *)this);
                     osalDbgAssert(!dma_allocated, "stream already allocated");
                     chSysUnlock();
+#if defined(STM32F7)
+                    dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->RDR);
+#else
                     dmaStreamSetPeripheral(rxdma, &((SerialDriver*)sdef.serial)->usart->DR);
+#endif // STM32F7
                 }
                 if (sdef.dma_tx) {
                     // we only allow for sharing of the TX DMA channel, not the RX
@@ -230,7 +251,6 @@ void UARTDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
             sercfg.cr2 = USART_CR2_STOP1_BITS;
             sercfg.irq_cb = rx_irq_cb;
             sercfg.ctx = (void*)this;
-            
             sdStart((SerialDriver*)sdef.serial, &sercfg);
             if(sdef.dma_rx) {
                 //Configure serial driver to skip handling RX packets
@@ -260,6 +280,13 @@ void UARTDriver::begin(uint32_t b, uint16_t rxS, uint16_t txS)
 
     // setup flow control
     set_flow_control(_flow_control);
+
+    if (serial_num == 0 && _initialised) {
+#ifndef HAL_STDOUT_SERIAL
+        // setup hal.console to take printf() output
+        vprintf_console_hook = hal_console_vprintf;
+#endif
+    }
 }
 
 void UARTDriver::dma_tx_allocate(Shared_DMA *ctx)
@@ -274,7 +301,11 @@ void UARTDriver::dma_tx_allocate(Shared_DMA *ctx)
                                            (void *)this);
     osalDbgAssert(!dma_allocated, "stream already allocated");
     chSysUnlock();
+#if defined(STM32F7)
+    dmaStreamSetPeripheral(txdma, &((SerialDriver*)sdef.serial)->usart->TDR);
+#else
     dmaStreamSetPeripheral(txdma, &((SerialDriver*)sdef.serial)->usart->DR);
+#endif // STM32F7
 #endif // HAL_USE_SERIAL
 }
 
@@ -313,6 +344,10 @@ void UARTDriver::rx_irq_cb(void* self)
     if (!uart_drv->sdef.dma_rx) {
         return;
     }
+#if defined(STM32F7)
+    //disable dma, triggering DMA transfer complete interrupt
+    uart_drv->rxdma->stream->CR &= ~STM32_DMA_CR_EN;
+#else
     volatile uint16_t sr = ((SerialDriver*)(uart_drv->sdef.serial))->usart->SR;
     if(sr & USART_SR_IDLE) {
         volatile uint16_t dr = ((SerialDriver*)(uart_drv->sdef.serial))->usart->DR;
@@ -320,6 +355,7 @@ void UARTDriver::rx_irq_cb(void* self)
         //disable dma, triggering DMA transfer complete interrupt
         uart_drv->rxdma->stream->CR &= ~STM32_DMA_CR_EN;
     }
+#endif // STM32F7
 #endif // HAL_USE_SERIAL
 }
 
@@ -337,7 +373,11 @@ void UARTDriver::rxbuff_full_irq(void* self, uint32_t flags)
     if (len == 0) {
         return;
     }
+
     uart_drv->_readbuf.write(uart_drv->rx_bounce_buf, len);
+
+    uart_drv->receive_timestamp_update();
+    
     //restart the DMA transfers
     dmaStreamSetMemory0(uart_drv->rxdma, uart_drv->rx_bounce_buf);
     dmaStreamSetTransactionSize(uart_drv->rxdma, RX_BOUNCE_BUFSIZE);
@@ -695,8 +735,6 @@ void UARTDriver::write_pending_bytes(void)
  */
 void UARTDriver::_timer_tick(void)
 {
-    int ret;
-
     if (!_initialised) return;
 
     if (sdef.dma_rx && rxdma) {
@@ -708,6 +746,9 @@ void UARTDriver::_timer_tick(void)
             uint8_t len = RX_BOUNCE_BUFSIZE - rxdma->stream->NDTR;
             if (len != 0) {
                 _readbuf.write(rx_bounce_buf, len);
+
+                receive_timestamp_update();
+                
                 if (_wait.thread_ctx && _readbuf.available() >= _wait.n) {
                     chEvtSignal(_wait.thread_ctx, EVT_DATA);                    
                 }
@@ -745,14 +786,13 @@ void UARTDriver::_timer_tick(void)
 
         const auto n_vec = _readbuf.reserve(vec, _readbuf.space());
         for (int i = 0; i < n_vec; i++) {
+            int ret = 0;
             //Do a non-blocking read
             if (sdef.is_usb) {
-                ret = 0;
     #ifdef HAVE_USB_SERIAL
                 ret = chnReadTimeout((SerialUSBDriver*)sdef.serial, vec[i].data, vec[i].len, TIME_IMMEDIATE);
     #endif
             } else {
-                ret = 0;
 #if HAL_USE_SERIAL == TRUE
                 ret = chnReadTimeout((SerialDriver*)sdef.serial, vec[i].data, vec[i].len, TIME_IMMEDIATE);
 #endif
@@ -762,6 +802,8 @@ void UARTDriver::_timer_tick(void)
             }
             _readbuf.commit((unsigned)ret);
 
+            receive_timestamp_update();
+            
             /* stop reading as we read less than we asked for */
             if ((unsigned)ret < vec[i].len) {
                 break;
@@ -934,5 +976,36 @@ void UARTDriver::set_stop_bits(int n)
 #endif // HAL_USE_SERIAL
 }
 
+
+// record timestamp of new incoming data 
+void UARTDriver::receive_timestamp_update(void)
+{
+    _receive_timestamp[_receive_timestamp_idx^1] = AP_HAL::micros64();
+    _receive_timestamp_idx ^= 1;
+}
+
+/*
+  return timestamp estimate in microseconds for when the start of
+  a nbytes packet arrived on the uart. This should be treated as a
+  time constraint, not an exact time. It is guaranteed that the
+  packet did not start being received after this time, but it
+  could have been in a system buffer before the returned time.
+  
+  This takes account of the baudrate of the link. For transports
+  that have no baudrate (such as USB) the time estimate may be
+  less accurate.
+  
+  A return value of zero means the HAL does not support this API
+*/
+uint64_t UARTDriver::receive_time_constraint_us(uint16_t nbytes)
+{
+    uint64_t last_receive_us = _receive_timestamp[_receive_timestamp_idx];
+    if (_baudrate > 0 && !sdef.is_usb) {
+        // assume 10 bits per byte. For USB we assume zero transport delay
+        uint32_t transport_time_us = (1000000UL * 10UL / _baudrate) * (nbytes + available());
+        last_receive_us -= transport_time_us;
+    }
+    return last_receive_us;
+}
 
 #endif //CONFIG_HAL_BOARD == HAL_BOARD_CHIBIOS

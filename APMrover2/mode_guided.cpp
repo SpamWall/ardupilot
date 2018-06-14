@@ -9,9 +9,6 @@ bool ModeGuided::_enter()
     // when entering guided mode we set the target as the current location.
     set_desired_location(rover.current_loc);
 
-    // guided mode never travels in reverse
-    rover.set_reverse(false);
-
     return true;
 }
 
@@ -66,11 +63,9 @@ void ModeGuided::update()
             if (have_attitude_target) {
                 // run steering and throttle controllers
                 float steering_out = attitude_control.get_steering_out_rate(radians(_desired_yaw_rate_cds / 100.0f),
-                                                                            g2.motors.have_skid_steering(),
-                                                                            g2.motors.have_vectored_thrust(),
                                                                             g2.motors.limit.steer_left,
                                                                             g2.motors.limit.steer_right,
-                                                                            _desired_speed < 0);
+                                                                            rover.G_Dt);
                 g2.motors.set_steering(steering_out * 4500.0f);
                 calc_throttle(_desired_speed, true, true);
             } else {

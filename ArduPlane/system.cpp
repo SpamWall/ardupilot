@@ -241,10 +241,12 @@ void Plane::startup_ground(void)
     mission.init();
 
     // initialise DataFlash library
+#if LOGGING_ENABLED == ENABLED
     DataFlash.set_mission(&mission);
     DataFlash.setVehicle_Startup_Log_Writer(
         FUNCTOR_BIND(&plane, &Plane::Log_Write_Vehicle_Startup_Messages, void)
         );
+#endif
 
     // reset last heartbeat time, so we don't trigger failsafe on slow
     // startup
@@ -269,8 +271,9 @@ void Plane::set_mode(enum FlightMode mode, mode_reason_t reason)
         return;
     }
 
-    if(g.auto_trim > 0 && control_mode == MANUAL)
-        trim_control_surfaces();
+    if(g.auto_trim > 0 && control_mode == MANUAL) {
+        trim_radio();
+    }
 
     // perform any cleanup required for prev flight mode
     exit_mode(control_mode);
@@ -706,15 +709,11 @@ int8_t Plane::throttle_percentage(void)
     if (quadplane.in_vtol_mode()) {
         return quadplane.throttle_percentage();
     }
-    // to get the real throttle we need to use norm_output() which
-    // returns a number from -1 to 1.
-    float throttle = SRV_Channels::get_output_norm(SRV_Channel::k_throttle);
+    float throttle = SRV_Channels::get_output_scaled(SRV_Channel::k_throttle);
     if (aparm.throttle_min >= 0) {
-        return constrain_int16(50*(throttle+1), 0, 100);
-    } else {
-        // reverse thrust
-        return constrain_int16(100*throttle, -100, 100);
+        return constrain_int16(throttle, 0, 100);
     }
+    return constrain_int16(throttle, -100, 100);
 }
 
 /*

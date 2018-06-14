@@ -113,7 +113,11 @@ for t in $CI_BUILD_TARGET; do
 
     if [[ -n ${waf_supported_boards[$t]} && -z ${CI_CRON_JOB+1} ]]; then
         echo "Starting waf build for board ${t}..."
-        $waf configure --board $t --enable-benchmarks --check-c-compiler="$c_compiler" --check-cxx-compiler="$cxx_compiler"
+        $waf configure --board $t \
+                --enable-benchmarks \
+                --enable-header-checks \
+                --check-c-compiler="$c_compiler" \
+                --check-cxx-compiler="$cxx_compiler"
         $waf clean
         $waf all
         ccache -s && ccache -z
@@ -123,6 +127,12 @@ for t in $CI_BUILD_TARGET; do
         fi
     fi
 done
+
+python Tools/autotest/param_metadata/param_parse.py --no-emit --vehicle APMrover2
+python Tools/autotest/param_metadata/param_parse.py --no-emit --vehicle AntennaTracker
+python Tools/autotest/param_metadata/param_parse.py --no-emit --vehicle ArduCopter
+python Tools/autotest/param_metadata/param_parse.py --no-emit --vehicle ArduPlane
+python Tools/autotest/param_metadata/param_parse.py --no-emit --vehicle ArduSub
 
 echo build OK
 exit 0

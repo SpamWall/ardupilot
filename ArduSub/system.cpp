@@ -116,7 +116,6 @@ void Sub::init_ardupilot()
 #endif
 
     // init Location class
-    Location_Class::set_ahrs(&ahrs);
 #if AP_TERRAIN_AVAILABLE && AC_TERRAIN
     Location_Class::set_terrain(&terrain);
     wp_nav.set_terrain(&terrain);
@@ -187,8 +186,10 @@ void Sub::init_ardupilot()
     mission.init();
 
     // initialise DataFlash library
+#if LOGGING_ENABLED == ENABLED
     DataFlash.set_mission(&mission);
     DataFlash.setVehicle_Startup_Log_Writer(FUNCTOR_BIND(&sub, &Sub::Log_Write_Vehicle_Startup_Messages, void));
+#endif
 
     startup_INS_ground();
 

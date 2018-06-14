@@ -80,6 +80,21 @@ public:
 
     void configure_parity(uint8_t v) override;
     void set_stop_bits(int n) override;
+
+    /*
+      return timestamp estimate in microseconds for when the start of
+      a nbytes packet arrived on the uart. This should be treated as a
+      time constraint, not an exact time. It is guaranteed that the
+      packet did not start being received after this time, but it
+      could have been in a system buffer before the returned time.
+
+      This takes account of the baudrate of the link. For transports
+      that have no baudrate (such as USB) the time estimate may be
+      less accurate.
+
+      A return value of zero means the HAL does not support this API
+     */
+    uint64_t receive_time_constraint_us(uint16_t nbytes) override;
     
 private:
     bool tx_bounce_buf_ready;
@@ -116,8 +131,8 @@ private:
 
     // we use in-task ring buffers to reduce the system call cost
     // of ::read() and ::write() in the main loop
-    uint8_t rx_bounce_buf[RX_BOUNCE_BUFSIZE];
-    uint8_t tx_bounce_buf[TX_BOUNCE_BUFSIZE];
+    uint8_t *rx_bounce_buf;
+    uint8_t *tx_bounce_buf;
     ByteBuffer _readbuf{0};
     ByteBuffer _writebuf{0};
     Semaphore _write_mutex;
@@ -130,6 +145,10 @@ private:
     bool _lock_rx_in_timer_tick = false;
     Shared_DMA *dma_handle;
     static const SerialDef _serial_tab[];
+
+    // timestamp for receiving data on the UART, avoiding a lock
+    uint64_t _receive_timestamp[2];
+    uint8_t _receive_timestamp_idx;
 
     // handling of flow control
     enum flow_control _flow_control = FLOW_CONTROL_DISABLE;
@@ -153,6 +172,8 @@ private:
     void write_pending_bytes_NODMA(uint32_t n);
     void write_pending_bytes(void);
 
+    void receive_timestamp_update(void);
+    
     void thread_init();
     static void uart_thread(void *);
 };

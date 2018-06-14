@@ -29,18 +29,25 @@ public:
      */
     virtual void     delay_microseconds_boost(uint16_t us) { delay_microseconds(us); }
 
+    /*
+      end the priority boost from delay_microseconds_boost()
+     */
+    virtual void     boost_end(void) {}
+
+    // register a function to be called by the scheduler if it needs
+    // to sleep for more than min_time_ms
     virtual void     register_delay_callback(AP_HAL::Proc,
-                                             uint16_t min_time_ms) = 0;
+                                             uint16_t min_time_ms);
+    // returns true if the Scheduler has called the delay callback
+    // function.  If you are on the main thread that means your call
+    // stack has the scheduler on it somewhere.
+    virtual bool     in_delay_callback() const { return _in_delay_callback; }
 
     // register a high priority timer task
     virtual void     register_timer_process(AP_HAL::MemberProc) = 0;
 
     // register a low priority IO task
     virtual void     register_io_process(AP_HAL::MemberProc) = 0;
-
-    // suspend and resume both timer and IO processes
-    virtual void     suspend_timer_procs() = 0;
-    virtual void     resume_timer_procs() = 0;
 
     virtual void     register_timer_failsafe(AP_HAL::Proc,
                                              uint32_t period_us) = 0;
@@ -71,5 +78,14 @@ public:
       restore interrupt state from disable_interrupts_save()
      */
     virtual void restore_interrupts(void *) {}
-    
+
+    // called by subclasses when they need to delay for some time
+    virtual void call_delay_cb();
+    uint16_t _min_delay_cb_ms;
+
+private:
+
+    AP_HAL::Proc _delay_cb;
+    bool _in_delay_callback : 1;
+
 };

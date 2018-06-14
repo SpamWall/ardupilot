@@ -101,7 +101,7 @@
 #if AC_AVOID_ENABLED == ENABLED
  #include <AC_Avoidance/AC_Avoid.h>
 #endif
-#if SPRAYER == ENABLED
+#if SPRAYER_ENABLED == ENABLED
  # include <AC_Sprayer/AC_Sprayer.h>
 #endif
 #if GRIPPER_ENABLED == ENABLED
@@ -333,6 +333,7 @@ private:
             uint8_t initialised_params      : 1; // 25      // true when the all parameters have been initialised. we cannot send parameters to the GCS until this is done
             uint8_t compass_init_location   : 1; // 26      // true when the compass's initial location has been set
             uint8_t rc_override_enable      : 1; // 27      // aux switch rc_override is allowed
+            uint8_t armed_with_switch       : 1; // 28      // we armed using a arming switch
         };
         uint32_t value;
     } ap_t;
@@ -353,6 +354,12 @@ private:
         int8_t last_switch_position;        // switch position in previous iteration
         uint32_t last_edge_time_ms;         // system time that switch position was last changed
     } control_switch_state;
+
+    // de-bounce counters for switches.cpp
+    struct debounce {
+        uint8_t count;
+        uint8_t ch_flag;
+    } aux_debounce[(CH_12 - CH_7)+1];
 
     typedef struct {
         bool running;
@@ -377,9 +384,6 @@ private:
     // board specific config for CAN bus
     AP_BoardConfig_CAN BoardConfig_CAN;
 #endif
-
-    // receiver RSSI
-    uint8_t receiver_rssi;
 
     // Failsafe
     struct {
@@ -459,6 +463,7 @@ private:
     // The cm/s we are moving up or down based on filtered data - Positive = UP
     int16_t climb_rate;
     float target_rangefinder_alt;   // desired altitude in cm above the ground
+    bool target_rangefinder_alt_used; // true if mode is using target_rangefinder_alt
     int32_t baro_alt;            // barometer altitude in cm above home
     float baro_climbrate;        // barometer climbrate in cm/s
     LowPassFilterVector3f land_accel_ef_filter; // accelerations for land and crash detector tests
@@ -540,7 +545,7 @@ private:
     AP_RSSI rssi;
 
     // Crop Sprayer
-#if SPRAYER == ENABLED
+#if SPRAYER_ENABLED == ENABLED
     AC_Sprayer sprayer;
 #endif
 
@@ -574,9 +579,6 @@ private:
     // avoidance of adsb enabled vehicles (normally manned vehicles)
     AP_Avoidance_Copter avoidance_adsb{ahrs, adsb};
 #endif
-
-    // use this to prevent recursion during sensor init
-    bool in_mavlink_delay;
 
     // last valid RC input time
     uint32_t last_radio_update_ms;
@@ -706,7 +708,6 @@ private:
     void set_home_to_current_location_inflight();
     bool set_home_to_current_location(bool lock);
     bool set_home(const Location& loc, bool lock);
-    void set_ekf_origin(const Location& loc);
     bool far_from_EKF_origin(const Location& loc);
     void set_system_time_from_GPS();
 
@@ -724,7 +725,6 @@ private:
 
     // ekf_check.cpp
     void ekf_check();
-    bool ekf_check_position_problem();
     bool ekf_over_threshold();
     void failsafe_ekf_event();
     void failsafe_ekf_off_event(void);
@@ -766,13 +766,9 @@ private:
     // GCS_Mavlink.cpp
     void gcs_send_heartbeat(void);
     void gcs_send_deferred(void);
-    void send_attitude(mavlink_channel_t chan);
     void send_fence_status(mavlink_channel_t chan);
     void send_extended_status1(mavlink_channel_t chan);
-    void send_location(mavlink_channel_t chan);
     void send_nav_controller_output(mavlink_channel_t chan);
-    void send_simstate(mavlink_channel_t chan);
-    void send_vfr_hud(mavlink_channel_t chan);
     void send_rpm(mavlink_channel_t chan);
     void send_pid_tuning(mavlink_channel_t chan);
     void gcs_data_stream_send(void);
@@ -813,7 +809,6 @@ private:
     void Log_Write_Data(uint8_t id, float value);
     void Log_Write_Error(uint8_t sub_system, uint8_t error_code);
     void Log_Write_Parameter_Tuning(uint8_t param, float tuning_val, int16_t control_in, int16_t tune_low, int16_t tune_high);
-    void Log_Write_Home_And_Origin();
     void Log_Sensor_Health();
 #if FRAME_CONFIG == HELI_FRAME
     void Log_Write_Heli(void);
@@ -886,7 +881,6 @@ private:
     void compass_accumulate(void);
     void init_optflow();
     void update_optical_flow(void);
-    void read_receiver_rssi(void);
     void compass_cal_update(void);
     void accel_cal_update(void);
     void init_proximity();
@@ -914,6 +908,7 @@ private:
     void init_aux_switches();
     void init_aux_switch_function(int8_t ch_option, uint8_t ch_flag);
     void do_aux_switch_function(int8_t ch_function, uint8_t ch_flag);
+    bool debounce_aux_switch(uint8_t chan, uint8_t ch_flag);
     void save_trim();
     void auto_trim();
 
